@@ -1,47 +1,34 @@
-/**
-Copyright (c) 2011-2013 Contributors.
-
-The MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-
 /*jslint browser: true, vars: true, white: true, nomen: true*/
 /*jshint white: false, nomen: false*/
 /*global $, _*/
 $(function() {
     "use strict";
 
+    var webglVersion = window.location.search.indexOf('v=2') > 0 ? 2 : 1;
+
     var template = _.template($('#reportTemplate').html());
     var report = {
         platform: navigator.platform,
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        webglVersion: webglVersion
     };
 
-    if (!window.WebGLRenderingContext) {
+    if (webglVersion === 2) {
+        $('body').addClass('webgl2');
+    }
+
+    if ((webglVersion === 2 && !window.WebGL2RenderingContext) ||
+        (webglVersion === 1 && !window.WebGLRenderingContext)) {
         // The browser does not support WebGL
+        $('#output').addClass('warn');
         renderReport($('#webglNotSupportedTemplate').html());
         return;
     }
 
     var canvas = $('<canvas />', { width: '1', height: '1' }).appendTo('body');
     var gl;
-    var contextName = _.find(['webgl', 'experimental-webgl'], function(name) {
+    var possibleNames = (webglVersion === 2) ? ['webgl2', 'experimental-webgl2'] : ['webgl', 'experimental-webgl'];
+    var contextName = _.find(possibleNames, function (name) {
         gl = canvas[0].getContext(name, { stencil: true });
         return !!gl;
     });
@@ -49,6 +36,7 @@ $(function() {
 
     if (!gl) {
         // The browser supports WebGL, but initialization failed
+        $('#output').addClass('warn');
         renderReport($('#webglNotEnabledTemplate').html());
         return;
     }
@@ -69,9 +57,16 @@ $(function() {
     }
 
     function renderReport(header) {
-        $('#output').html(header + template({
+        var tabsTemplate = _.template($('#webglVersionTabs').html());
+        var headerTemplate = _.template(header);
+        $('#output').html(tabsTemplate({
             report: report,
-            getExtensionUrl: getExtensionUrl
+        }) + headerTemplate({
+            report: report,
+        }) + template({
+            report: report,
+            getExtensionUrl: getExtensionUrl,
+            getWebGL2ExtensionUrl: getWebGL2ExtensionUrl
         }));
     }
 
@@ -92,7 +87,7 @@ $(function() {
             }
             return max;
         }
-        return null;
+        return 'n/a';
     }
 
     function formatPower(exponent, verbose) {
@@ -139,9 +134,10 @@ $(function() {
     function getAngle(gl) {
         var lineWidthRange = describeRange(gl.getParameter(gl.ALIASED_LINE_WIDTH_RANGE));
 
-        // Heuristic: ANGLE is only on Windows, not in IE, and does not implement line width greater than one.
-        var angle = (navigator.platform === 'Win32') && 
-            (gl.getParameter(gl.RENDERER) !== 'Internet Explorer') && 
+        // Heuristic: ANGLE is only on Windows, not in IE, and not in Edge, and does not implement line width greater than one.
+        var angle = ((navigator.platform === 'Win32') || (navigator.platform === 'Win64')) &&
+            (gl.getParameter(gl.RENDERER) !== 'Internet Explorer') &&
+            (gl.getParameter(gl.RENDERER) !== 'Microsoft Edge') &&
             (lineWidthRange === describeRange([1,1]));
 
         if (angle) {
@@ -169,7 +165,7 @@ $(function() {
         if (!gl) {
             // Our original context creation passed.  This did not.
             return 'Yes';
-	}
+    }
 
         if (typeof gl.getContextAttributes().failIfMajorPerformanceCaveat === 'undefined') {
             // If getContextAttributes() doesn't include the failIfMajorPerformanceCaveat
@@ -177,15 +173,15 @@ $(function() {
             return 'Not implemented';
         }
 
-	return 'No';
+    return 'No';
     }
 
-    function getDraftExtensions() {
+    function getDraftExtensionsInstructions() {
         if (navigator.userAgent.indexOf('Chrome') !== -1) {
             return 'To see draft extensions in Chrome, browse to about:flags, enable the "Enable WebGL Draft Extensions" option, and relaunch.';
-	} else if (navigator.userAgent.indexOf('Firefox') !== -1) {
+        } else if (navigator.userAgent.indexOf('Firefox') !== -1) {
             return 'To see draft extensions in Firefox, browse to about:config and set webgl.enable-draft-extensions to true.';
-	}
+        }
 
         return '';
     }
@@ -193,8 +189,8 @@ $(function() {
     function getMaxColorBuffers(gl) {
         var maxColorBuffers = 1;
         var ext = gl.getExtension("WEBGL_draw_buffers");
-		if (ext != null) 
-    		maxColorBuffers = gl.getParameter(ext.MAX_DRAW_BUFFERS_WEBGL);
+        if (ext != null) 
+            maxColorBuffers = gl.getParameter(ext.MAX_DRAW_BUFFERS_WEBGL);
         
         return maxColorBuffers;
     }
@@ -213,7 +209,190 @@ $(function() {
         
         return unMaskedInfo;
     }
+
+    function showNull(v) {
+        return (v === null) ? 'n/a' : v;
+    }
     
+    var webglToEsNames = {
+        'getInternalformatParameter' : 'getInternalformativ',
+        'uniform1ui' : 'uniform',
+        'uniform2ui' : 'uniform',
+        'uniform3ui' : 'uniform',
+        'uniform4ui' : 'uniform',
+        'uniform1uiv' : 'uniform',
+        'uniform2uiv' : 'uniform',
+        'uniform3uiv' : 'uniform',
+        'uniform4uiv' : 'uniform',
+        'uniformMatrix2x3fv' : 'uniform',
+        'uniformMatrix3x2fv' : 'uniform',
+        'uniformMatrix2x4fv' : 'uniform',
+        'uniformMatrix4x2fv' : 'uniform',
+        'uniformMatrix3x4fv' : 'uniform',
+        'uniformMatrix4x3fv' : 'uniform',
+        'vertexAttribI4i' : 'vertexAttrib',
+        'vertexAttribI4iv' : 'vertexAttrib',
+        'vertexAttribI4ui' : 'vertexAttrib',
+        'vertexAttribI4uiv' : 'vertexAttrib',
+        'vertexAttribIPointer' : 'vertexAttribPointer',
+        'vertexAttribDivisor' : 'vertexAttribDivisor',
+        'createQuery' : 'genQueries',
+        'deleteQuery' : 'deleteQueries',
+        'endQuery' : 'beginQuery',
+        'getQuery' : 'getQueryiv',
+        'getQueryParameter' : 'getQueryObjectuiv',
+        'samplerParameteri' : 'samplerParameter',
+        'samplerParameterf' : 'samplerParameter',
+        'clearBufferiv' : 'clearBuffer',
+        'clearBufferuiv' : 'clearBuffer',
+        'clearBufferfv' : 'clearBuffer',
+        'clearBufferfi' : 'clearBuffer',
+        'createSampler' : 'genSamplers',
+        'deleteSampler' : 'deleteSamplers',
+        'getSyncParameter' : 'getSynciv',
+        'createTransformFeedback' : 'genTransformFeedbacks',
+        'deleteTransformFeedback' : 'deleteTransformFeedbacks',
+        'endTransformFeedback' : 'beginTransformFeedback',
+        'getIndexedParameter' : 'get',
+        'getActiveUniforms' : 'getActiveUniformsiv',
+        'getActiveUniformBlockParameter' : 'getActiveUniformBlockiv',
+        'createVertexArray' : 'genVertexArrays',
+        'deleteVertexArray' : 'deleteVertexArrays'
+    };
+
+    function getWebGL2ExtensionUrl(name) {
+        if (name === 'getBufferSubData') {
+            return 'http://www.opengl.org/sdk/docs/man/docbook4/xhtml/glGetBufferSubData.xml';
+        }
+
+        if (webglToEsNames[name]) {
+            name = webglToEsNames[name];
+        }
+
+        var filename = 'gl' + name[0].toUpperCase() + name.substring(1) + '.xhtml';
+        return 'http://www.khronos.org/opengles/sdk/docs/man3/html/' + filename;
+    }
+
+    function getWebGL2Status(gl, contextName) {
+        var webgl2Names = [
+            'copyBufferSubData',
+            'getBufferSubData',
+            'blitFramebuffer',
+            'framebufferTextureLayer',
+            'getInternalformatParameter',
+            'invalidateFramebuffer',
+            'invalidateSubFramebuffer',
+            'readBuffer',
+            'renderbufferStorageMultisample',
+            'texStorage2D',
+            'texStorage3D',
+            'texImage3D',
+            'texSubImage3D',
+            'copyTexSubImage3D',
+            'compressedTexImage3D',
+            'compressedTexSubImage3D',
+            'getFragDataLocation',
+            'uniform1ui',
+            'uniform2ui',
+            'uniform3ui',
+            'uniform4ui',
+            'uniform1uiv',
+            'uniform2uiv',
+            'uniform3uiv',
+            'uniform4uiv',
+            'uniformMatrix2x3fv',
+            'uniformMatrix3x2fv',
+            'uniformMatrix2x4fv',
+            'uniformMatrix4x2fv',
+            'uniformMatrix3x4fv',
+            'uniformMatrix4x3fv',
+            'vertexAttribI4i',
+            'vertexAttribI4iv',
+            'vertexAttribI4ui',
+            'vertexAttribI4uiv',
+            'vertexAttribIPointer',
+            'vertexAttribDivisor',
+            'drawArraysInstanced',
+            'drawElementsInstanced',
+            'drawRangeElements',
+            'drawBuffers',
+            'clearBufferiv',
+            'clearBufferuiv',
+            'clearBufferfv',
+            'clearBufferfi',
+            'createQuery',
+            'deleteQuery',
+            'isQuery',
+            'beginQuery',
+            'endQuery',
+            'getQuery',
+            'getQueryParameter',
+            'createSampler',
+            'deleteSampler',
+            'isSampler',
+            'bindSampler',
+            'samplerParameteri',
+            'samplerParameterf',
+            'getSamplerParameter',
+            'fenceSync',
+            'isSync',
+            'deleteSync',
+            'clientWaitSync',
+            'waitSync',
+            'getSyncParameter',
+            'createTransformFeedback',
+            'deleteTransformFeedback',
+            'isTransformFeedback',
+            'bindTransformFeedback',
+            'beginTransformFeedback',
+            'endTransformFeedback',
+            'transformFeedbackVaryings',
+            'getTransformFeedbackVarying',
+            'pauseTransformFeedback',
+            'resumeTransformFeedback',
+            'bindBufferBase',
+            'bindBufferRange',
+            'getIndexedParameter',
+            'getUniformIndices',
+            'getActiveUniforms',
+            'getUniformBlockIndex',
+            'getActiveUniformBlockParameter',
+            'getActiveUniformBlockName',
+            'uniformBlockBinding',
+            'createVertexArray',
+            'deleteVertexArray',
+            'isVertexArray',
+            'bindVertexArray'
+        ];
+
+        var webgl2 = (contextName.indexOf('webgl2') !== -1);
+
+        var functions = [];
+        var totalImplemented = 0;
+        var length = webgl2Names.length;
+
+        if (webgl2) {
+            for (var i = 0; i < length; ++i) {
+                var name = webgl2Names[i];
+                var className = 'extension';
+                if (webgl2 && gl[name]) {
+                    ++totalImplemented;
+                } else {
+                    className += ' unsupported';
+                }
+                functions.push({ name: name, className: className });
+            }
+        }
+
+        return {
+            status : webgl2 ? (totalImplemented + ' of ' + length + ' new functions implemented.') :
+                'webgl2 and experimental-webgl2 contexts not available.',
+            functions : functions
+        };
+    }
+
+    var webgl2Status = getWebGL2Status(gl, contextName);
+
     report = _.extend(report, {
         contextName: contextName,
         glVersion: gl.getParameter(gl.VERSION),
@@ -246,12 +425,47 @@ $(function() {
         aliasedPointSizeRange: describeRange(gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)),
         maxViewportDimensions: describeRange(gl.getParameter(gl.MAX_VIEWPORT_DIMS)),
         maxAnisotropy: getMaxAnisotropy(),
-        extensions: gl.getSupportedExtensions(),
         vertexShaderBestPrecision: getBestFloatPrecision(gl.VERTEX_SHADER),
         fragmentShaderBestPrecision: getBestFloatPrecision(gl.FRAGMENT_SHADER),
         fragmentShaderFloatIntPrecision: getFloatIntPrecision(gl),
-        draftExtensions: getDraftExtensions()
+
+        extensions: gl.getSupportedExtensions(),
+        draftExtensionsInstructions: getDraftExtensionsInstructions(),
+
+        webgl2Status : webgl2Status.status,
+        webgl2Functions : webgl2Status.functions
     });
+
+    if (webglVersion > 1) {
+        report = _.extend(report, {
+            maxVertexUniformComponents: showNull(gl.getParameter(gl.MAX_VERTEX_UNIFORM_COMPONENTS)),
+            maxVertexUniformBlocks: showNull(gl.getParameter(gl.MAX_VERTEX_UNIFORM_BLOCKS)),
+            maxVertexOutputComponents: showNull(gl.getParameter(gl.MAX_VERTEX_OUTPUT_COMPONENTS)),
+            maxVaryingComponents: showNull(gl.getParameter(gl.MAX_VARYING_COMPONENTS)),
+            maxFragmentUniformComponents: showNull(gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_COMPONENTS)),
+            maxFragmentUniformBlocks: showNull(gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_BLOCKS)),
+            maxFragmentInputComponents: showNull(gl.getParameter(gl.MAX_FRAGMENT_INPUT_COMPONENTS)),
+            minProgramTexelOffset: showNull(gl.getParameter(gl.MIN_PROGRAM_TEXEL_OFFSET)),
+            maxProgramTexelOffset: showNull(gl.getParameter(gl.MAX_PROGRAM_TEXEL_OFFSET)),
+            maxDrawBuffers: showNull(gl.getParameter(gl.MAX_DRAW_BUFFERS)),
+            maxColorAttachments: showNull(gl.getParameter(gl.MAX_COLOR_ATTACHMENTS)),
+            maxSamples: showNull(gl.getParameter(gl.MAX_SAMPLES)),
+            max3dTextureSize: showNull(gl.getParameter(gl.MAX_3D_TEXTURE_SIZE)),
+            maxArrayTextureLayers: showNull(gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS)),
+            maxTextureLodBias: showNull(gl.getParameter(gl.MAX_TEXTURE_LOD_BIAS)),
+            maxUniformBufferBindings: showNull(gl.getParameter(gl.MAX_UNIFORM_BUFFER_BINDINGS)),
+            maxUniformBlockSize: showNull(gl.getParameter(gl.MAX_UNIFORM_BLOCK_SIZE)),
+            uniformBufferOffsetAlignment: showNull(gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT)),
+            maxCombinedUniformBlocks: showNull(gl.getParameter(gl.MAX_COMBINED_UNIFORM_BLOCKS)),
+            maxCombinedVertexUniformComponents: showNull(gl.getParameter(gl.MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS)),
+            maxCombinedFragmentUniformComponents: showNull(gl.getParameter(gl.MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS)),
+            maxTransformFeedbackInterleavedComponents: showNull(gl.getParameter(gl.MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS)),
+            maxTransformFeedbackSeparateAttribs: showNull(gl.getParameter(gl.MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS)),
+            maxTransformFeedbackSeparateComponents: showNull(gl.getParameter(gl.MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS)),
+            maxElementIndex: showNull(gl.getParameter(gl.MAX_ELEMENT_INDEX)),
+            maxServerWaitTimeout: showNull(gl.getParameter(gl.MAX_SERVER_WAIT_TIMEOUT))
+        });
+    }
 
     if (window.externalHost) {
         // Tab is running with Chrome Frame
@@ -314,6 +528,15 @@ $(function() {
         context.fill();
     }
 
+    function drawRightHead(x, y) {
+        context.beginPath();
+        context.moveTo(x - 5, y + 15);
+        context.lineTo(x + 10, y);
+        context.lineTo(x - 5, y - 15);
+        context.quadraticCurveTo(x, y, x - 5, y + 15);
+        context.fill();
+    }
+
     function drawDownHead(x, y) {
         context.beginPath();
         context.moveTo(x + 15, y - 5);
@@ -326,9 +549,9 @@ $(function() {
     function drawDownArrow(topBox, bottomBox) {
         context.beginPath();
 
-        var arrowTopX = (topBox.x + topBox.width) / 2;
+        var arrowTopX = topBox.x + topBox.width / 2;
         var arrowTopY = topBox.y + topBox.height;
-        var arrowBottomX = (bottomBox.x + bottomBox.width) / 2;
+        var arrowBottomX = bottomBox.x + bottomBox.width / 2;
         var arrowBottomY = bottomBox.y - 15;
         context.moveTo(arrowTopX, arrowTopY);
         context.lineTo(arrowBottomX, arrowBottomY);
@@ -337,65 +560,93 @@ $(function() {
         drawDownHead(arrowBottomX, arrowBottomY);
     }
 
+    function drawRightArrow(leftBox, rightBox, factor) {
+        context.beginPath();
+
+        var arrowLeftX = leftBox.x + leftBox.width;
+        var arrowRightX = rightBox.x - 15;
+        var arrowRightY = rightBox.y + rightBox.height * factor;
+        context.moveTo(arrowLeftX, arrowRightY);
+        context.lineTo(arrowRightX, arrowRightY);
+        context.stroke();
+
+        drawRightHead(arrowRightX, arrowRightY);
+    }
+
+    var webgl2color = (webglVersion > 1) ? '#02AFCF' : '#aaa';
+
     var vertexShaderBox = drawBox($('.vertexShader'), '#ff6700');
+    var transformFeedbackBox = drawBox($('.transformFeedback'), webgl2color);
     var rasterizerBox = drawBox($('.rasterizer'), '#3130cb');
     var fragmentShaderBox = drawBox($('.fragmentShader'), '#ff6700');
     var framebufferBox = drawBox($('.framebuffer'), '#7c177e');
     var texturesBox = drawBox($('.textures'), '#3130cb');
+    var uniformBuffersBox = drawBox($('.uniformBuffers'), webgl2color);
 
     var arrowRightX = texturesBox.x;
     var arrowRightY = texturesBox.y + (texturesBox.height / 2);
     var arrowMidX = (texturesBox.x + vertexShaderBox.x + vertexShaderBox.width) / 2;
     var arrowMidY = arrowRightY;
-    var arrowTopMidY = vertexShaderBox.y + (vertexShaderBox.height / 2);
-    var arrowBottomMidY = fragmentShaderBox.y + (fragmentShaderBox.height / 2);
+    var arrowTopMidY = texturesBox.y - 15;
+    var arrowBottomMidY = fragmentShaderBox.y + (fragmentShaderBox.height * 0.55);
     var arrowTopLeftX = vertexShaderBox.x + vertexShaderBox.width + 15;
     var arrowTopLeftY = arrowTopMidY;
     var arrowBottomLeftX = fragmentShaderBox.x + fragmentShaderBox.width + 15;
     var arrowBottomLeftY = arrowBottomMidY;
 
-	if (hasVertexTextureUnits) {
-	    context.fillStyle = context.strokeStyle = 'black';
-	    context.lineWidth = 10;
-	} else {
-		context.fillStyle = context.strokeStyle = '#FFF';
-	    context.shadowColor = '#000';
-		context.shadowOffsetX = context.shadowOffsetY = 0;
-	    context.lineWidth = 8;
-	}
+    if (hasVertexTextureUnits) {
+        context.fillStyle = context.strokeStyle = 'black';
+        context.lineWidth = 10;
+    } else {
+        context.fillStyle = context.strokeStyle = '#FFF';
+        context.shadowColor = '#000';
+        context.shadowOffsetX = context.shadowOffsetY = 0;
+        context.lineWidth = 8;
+    }
 
-	context.beginPath();
-	context.moveTo(arrowMidX, arrowMidY);
-	context.lineTo(arrowMidX, arrowTopMidY);
-	if (hasVertexTextureUnits) {
-		context.lineTo(arrowTopLeftX, arrowTopMidY);
-		context.stroke();
-		drawLeftHead(arrowTopLeftX, arrowTopLeftY);
-	} else {
-		context.stroke();
-	    context.shadowColor = '#000';
-		context.font = 'bold 14pt arial, Sans-Serif';
-		context.fillText('No vertex textures available.', arrowMidX - 8, arrowTopMidY - 8);
-	}
+    context.beginPath();
+    context.moveTo(arrowMidX, arrowMidY);
+    context.lineTo(arrowMidX, arrowTopMidY);
+    if (hasVertexTextureUnits) {
+        context.lineTo(arrowTopLeftX, arrowTopMidY);
+        context.stroke();
+        drawLeftHead(arrowTopLeftX, arrowTopLeftY);
+    } else {
+        context.stroke();
+        context.shadowColor = '#000';
+        context.font = 'bold 14pt arial, Sans-Serif';
+        context.fillText('No vertex textures available.', arrowMidX - 8, arrowTopMidY - 8);
+    }
 
     context.lineWidth = 10;
     context.fillStyle = context.strokeStyle = 'black';
     context.shadowColor = 'rgba(0, 0, 0, 0.5)';
-	context.shadowOffsetX = context.shadowOffsetY = 3;
+    context.shadowOffsetX = context.shadowOffsetY = 3;
     context.beginPath();
 
     context.moveTo(arrowRightX, arrowRightY);
 
     context.lineTo(arrowMidX - context.lineWidth * 0.5, arrowMidY);
-	context.moveTo(arrowMidX, arrowMidY);
+    context.moveTo(arrowMidX, arrowMidY);
     context.lineTo(arrowMidX, arrowBottomMidY);
     context.lineTo(arrowBottomLeftX, arrowBottomLeftY);
+
+    var uniformBuffersMidY = uniformBuffersBox.y + uniformBuffersBox.height / 2;
+    context.moveTo(arrowMidX, uniformBuffersMidY);
+    context.lineTo(arrowRightX, uniformBuffersMidY);
 
     context.stroke();
 
     drawLeftHead(arrowBottomLeftX, arrowBottomLeftY);
 
+    drawRightArrow(vertexShaderBox, transformFeedbackBox, 0.5);
     drawDownArrow(vertexShaderBox, rasterizerBox);
     drawDownArrow(rasterizerBox, fragmentShaderBox);
-    drawDownArrow(fragmentShaderBox, framebufferBox);
+    if (webglVersion === 1) {
+        drawDownArrow(fragmentShaderBox, framebufferBox);
+    } else {
+        drawRightArrow(fragmentShaderBox, framebufferBox, 0.7);
+    }
+
+    window.gl = gl;
 });
